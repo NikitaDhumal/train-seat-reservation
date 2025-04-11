@@ -27,7 +27,8 @@ export default function LoginPage() {
         className="bg-white p-4 rounded shadow w-100"
         style={{ maxWidth: "400px" }}
       >
-        <h2 className="mb-4">Login</h2>
+        <h2 className="mb-4 text-center">Login</h2>
+
         <input
           type="email"
           placeholder="Email"
@@ -46,6 +47,18 @@ export default function LoginPage() {
           Login
         </button>
         {error && <div className="text-danger mt-2">{error}</div>}
+        <p className="text-center m-0 mt-3">
+          Don't have an account?{" "}
+          <span
+            className="text-primary"
+            style={{ cursor: "pointer" }}
+            onClick={() => {
+              router.push("/signup");
+            }}
+          >
+            Sign up
+          </span>{" "}
+        </p>
       </div>
     </div>
   );

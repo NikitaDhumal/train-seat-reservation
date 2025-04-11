@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { toast } from "react-toastify";
+import { fetchSeatsAPI } from "@/utils/api/getSeats";
+import resetSeatsAPI from "@/utils/api/postResetSeats";
 
 interface Seat {
   id: number;
-  row: number;
-  col: number;
-  isBooked: boolean;
+  row_number: number;
+  seat_number: number;
+  booked_by: number;
 }
 
 export default function SeatBookingPage() {
@@ -18,22 +21,13 @@ export default function SeatBookingPage() {
       Authorization: `Bearer ${localStorage.getItem("token")}`,
     },
   });
-
-  useEffect(() => {
-    fetchSeats();
-  }, []);
-
-  const fetchSeats = async () => {
-    try {
-      const res = await axios.get(
-        "http://localhost:5000/api/seats",
-        getAuthHeaders()
-      );
-      setSeats(res.data);
-    } catch (err) {
-      console.error("Failed to fetch seats:", err);
-    }
+  const loadSeats = async () => {
+    const data = await fetchSeatsAPI();
+    if (data) setSeats(data); // update only if not null
   };
+  useEffect(() => {
+    loadSeats();
+  }, []);
 
   const handleSelect = (seatId: number) => {
     if (selectedSeats.includes(seatId)) {
@@ -45,8 +39,26 @@ export default function SeatBookingPage() {
     }
   };
 
-  const handleReset = () => {
-    setSelectedSeats([]);
+  const handleReset = async () => {
+    const confirmReset = window.confirm(
+      "Are you sure you want to reset all bookings?"
+    );
+    if (!confirmReset) return;
+
+    try {
+      await axios.post("http://localhost:5000/api/seats/reset");
+
+      toast.success("All bookings have been reset");
+      loadSeats(); // Refresh seat map
+      setSelectedSeats([]); // Clear selected seats
+    } catch (error: any) {
+      if (axios.isAxiosError(error)) {
+        toast.error(error.response?.data?.message || "Reset failed");
+      } else {
+        toast.error("An unexpected error occurred");
+      }
+      console.error("Reset error:", error);
+    }
   };
 
   const handleBooking = async () => {
@@ -56,42 +68,61 @@ export default function SeatBookingPage() {
         { seats: selectedSeats },
         getAuthHeaders()
       );
-      alert("Booking successful!");
+      toast.success("Booking successful!");
       setSelectedSeats([]);
-      fetchSeats();
+      loadSeats();
     } catch (err) {
-      alert("Booking failed. Please try again.");
+      toast.error("Booking failed!");
     }
   };
 
   const suggestSeats = () => {
-    const available = seats.filter((s) => !s.isBooked);
+    const available = seats.filter((s) => !s.booked_by);
+    const maxRow = Math.max(...seats.map((s) => s.row_number));
     let suggestion: number[] = [];
 
-    for (let row = 1; row <= Math.max(...seats.map((s) => s.row)); row++) {
-      const rowSeats = available
-        .filter((s) => s.row === row)
-        .sort((a, b) => a.col - b.col);
+    for (let row = 1; row <= maxRow; row++) {
+      // All seats in the row sorted by seat_number
+      const rowSeats = seats
+        .filter((s) => s.row_number === row)
+        .sort((a, b) => a.seat_number - b.seat_number);
 
-      for (let i = 0; i <= rowSeats.length - seatCount; i++) {
-        const block = rowSeats.slice(i, i + seatCount);
+      // Filter out only the available ones
+      const availableInRow = rowSeats.filter((s) => !s.booked_by);
+
+      // Skip if row doesn't have enough available seats
+      if (availableInRow.length < seatCount) continue;
+
+      // Look for contiguous block in that row
+      for (let i = 0; i <= availableInRow.length - seatCount; i++) {
+        const block = availableInRow.slice(i, i + seatCount);
         const isContiguous = block.every(
-          (s, idx) => idx === 0 || s.col === block[idx - 1].col + 1
+          (s, idx) =>
+            idx === 0 || s.seat_number === block[idx - 1].seat_number + 1
         );
+
         if (isContiguous) {
           suggestion = block.map((s) => s.id);
           break;
         }
       }
 
-      if (suggestion.length > 0) break;
+      if (suggestion.length > 0) break; // Break outer loop if found
+    }
+
+    // Fallback if no contiguous block found, just suggest nearest available
+    if (suggestion.length === 0 && available.length >= seatCount) {
+      const sorted = available.sort(
+        (a, b) => a.row_number - b.row_number || a.seat_number - b.seat_number
+      );
+      suggestion = sorted.slice(0, seatCount).map((s) => s.id);
     }
 
     if (suggestion.length === 0) {
-      suggestion = available.slice(0, seatCount).map((s) => s.id);
+      toast.error("Not enough contiguous seats available");
+    } else {
+      setSelectedSeats(suggestion);
     }
-
-    setSelectedSeats(suggestion);
   };
 
   // Group into rows (7 per row)
@@ -104,7 +135,7 @@ export default function SeatBookingPage() {
     <div className="container my-4">
       <div className="row">
         {/* ----------- Form Section ----------- */}
-        <div className="mb-4 p-4 border rounded shadow-sm bg-light col-6">
+        <div className="mb-4 p-4 border rounded shadow-sm bg-light col-12 col-md-6">
           <h5 className="mb-3">Train Seat Booking</h5>
 
           <label className="form-label">Number of seats to book (1-7):</label>
@@ -135,7 +166,7 @@ export default function SeatBookingPage() {
         </div>
 
         {/* ----------- Seat Grid Section ----------- */}
-        <div className="col-6">
+        <div className="col-12 col-md-6">
           <h6 className="mb-3 text-center">Seat Layout</h6>
           <div className="d-flex flex-column gap-2">
             {seatRows.map((row, rowIdx) => (
@@ -145,7 +176,7 @@ export default function SeatBookingPage() {
                     key={seat.id}
                     onClick={() => handleSelect(seat.id)}
                     className={`btn btn-sm ${
-                      seat.isBooked
+                      seat.booked_by
                         ? "btn-danger disabled"
                         : selectedSeats.includes(seat.id)
                         ? "btn-success"

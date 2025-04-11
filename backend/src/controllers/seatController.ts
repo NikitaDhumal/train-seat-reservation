@@ -21,55 +21,47 @@ export const bookSeats = async (
   res: Response
 ): Promise<void> => {
   const { user } = req;
-  const { count } = req.body;
+  const { seats } = req.body;
 
-  if (!count || count < 1 || count > 7) {
-    res.status(400).json({ message: "You can book between 1 to 7 seats" });
+  if (!Array.isArray(seats) || seats.length < 1 || seats.length > 7) {
+    res.status(400).json({ message: "You can book between 1 to 7 seats." });
     return;
   }
 
   try {
-    const seatData = await pool.query(
-      "SELECT * FROM seats WHERE booked_by IS NULL ORDER BY row_number, seat_number"
+    const result = await pool.query(
+      "SELECT id FROM seats WHERE id = ANY($1) AND booked_by IS NULL",
+      [seats]
     );
-    const availableSeats = seatData.rows;
 
-    if (availableSeats.length < count) {
-      res.status(400).json({ message: "Not enough seats available" });
+    if (result.rows.length !== seats.length) {
+      res.status(400).json({ message: "Some seats are already booked." });
       return;
     }
 
-    const rows: Record<number, any[]> = {};
-    availableSeats.forEach((seat) => {
-      if (!rows[seat.row_number]) rows[seat.row_number] = [];
-      rows[seat.row_number].push(seat);
-    });
-
-    let selectedSeats: any[] = [];
-    for (let row in rows) {
-      if (rows[row].length >= count) {
-        selectedSeats = rows[row].slice(0, count);
-        break;
-      }
-    }
-
-    if (selectedSeats.length < count) {
-      selectedSeats = availableSeats.slice(0, count);
-    }
-
-    const bookedIds = selectedSeats.map((seat) => seat.id);
-
-    for (let id of bookedIds) {
+    for (let id of seats) {
       await pool.query("UPDATE seats SET booked_by = $1 WHERE id = $2", [
         user?.id,
         id,
       ]);
     }
 
-    res
-      .status(200)
-      .json({ message: "Seats booked successfully", seats: bookedIds });
+    res.status(200).json({ message: "Seats booked successfully", seats });
+    return;
   } catch (error) {
     res.status(500).json({ message: "Booking failed" });
+    return;
+  }
+};
+export const resetSeats = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    await pool.query("UPDATE seats SET booked_by = NULL");
+    res.status(200).json({ message: "All bookings have been reset." });
+  } catch (error) {
+    console.error("Reset failed:", error);
+    res.status(500).json({ message: "Failed to reset bookings." });
   }
 };

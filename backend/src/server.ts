@@ -17,6 +17,7 @@ app.use(bodyParser.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/seats", seatRoutes);
+app.use("/api/seats", seatRoutes);
 
 // Test DB connection
 pool
